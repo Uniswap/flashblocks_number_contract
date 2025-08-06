@@ -30,6 +30,15 @@ interface IFlashblockNumber {
     event BuilderRemoved(address indexed builder);
 
     /// -----------------------------------------------------------------------
+    /// Errors
+    /// -----------------------------------------------------------------------
+
+    error NonBuilderAddress(address addr);
+    error InvalidFlashblockNumberUpdate(uint256 currentBlockNumber, uint256 lastL2BlockNumber);
+    error AddressIsAlreadyABuilder(address addr);
+    error BuilderDoesNotExist(address addr);
+
+    /// -----------------------------------------------------------------------
     /// Core Functions
     /// -----------------------------------------------------------------------
 

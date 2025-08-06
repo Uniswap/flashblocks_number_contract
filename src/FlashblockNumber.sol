@@ -92,7 +92,26 @@ contract FlashblockNumber is
 
     /// @inheritdoc IFlashblockNumber
     function incrementFlashblockNumber() external override {
-        // TODO: Implement increment logic
+        require(isBuilder[msg.sender], NonBuilderAddress(msg.sender));
+
+        if (flashblockIndex == numFlashblocksPerBlock - 1) {
+            // the current index is at the largest value it can be (according to numFlashblocksPerBlock),
+            // so this call to `incrementFlashblockNumber()` must be happening in a new block, and
+            // we should reset the index back to 0 to indicate we're storing the index for a new
+            // block. If we didn't make this check, then the index could be incremented to a value
+            // greater than the number of flashblocks in a block, which doesn't make any sense and must
+            // never happen
+            require(block.number > lastL2BlockNumber, InvalidFlashblockNumberUpdate(block.number, lastL2BlockNumber));
+            flashblockIndex = 0;
+        } else {
+            // this is the common case where the builder has called incrementFlashblockNumber
+            // at the beginning of the flashblock and it's not the last flashblock, so we simply
+            // increment
+            assert(flashblockIndex < numFlashblocksPerBlock - 1);
+            flashblockIndex++;
+        }
+
+        emit FlashblockIncremented(flashblockIndex);
     }
 
     /// -----------------------------------------------------------------------
@@ -101,8 +120,21 @@ contract FlashblockNumber is
 
     /// @inheritdoc IFlashblockNumber
     function getFlashblockNumber() external view override returns (uint256) {
-        // TODO: Implement getter
-        return 0;
+        if (block.number != lastL2BlockNumber) {
+            // this check ensures the contract is robust against failures in the remote builder.
+            // Specifically it handles the edge-case where the remote builder failed to build a
+            // block and the L2 sequencer fell back to building locally, and thus the builder did
+            // not make a call to `incrementFlashblockNumber` (which sets `lastL2BlockNumber` equal to
+            // `block.number`). In this scenario our contract cannot make any claim to what the
+            // flashblockNumber is, so we default to `0` which represents a regular non-flashblock
+            // block
+            return 0;
+        }
+
+        // since the `block.number` and `lastL2BlockNumber` are the same, we know the
+        // builder must have called `incrementFlashblockNumber` within this transaction's
+        // block, so we can confidently return the current `flashblockIndex`
+        return flashblockIndex;
     }
 
     /// -----------------------------------------------------------------------
@@ -110,13 +142,17 @@ contract FlashblockNumber is
     /// -----------------------------------------------------------------------
 
     /// @inheritdoc IFlashblockNumber
-    function addBuilder(address builder) external override {
-        // TODO: Implement add builder logic
+    function addBuilder(address builder) external override onlyOwner {
+        require(!isBuilder[builder], AddressIsAlreadyABuilder(builder));
+
+        isBuilder[builder] = true;
     }
 
     /// @inheritdoc IFlashblockNumber
-    function removeBuilder(address builder) external override {
-        // TODO: Implement remove builder logic
+    function removeBuilder(address builder) external override onlyOwner {
+        require(isBuilder[builder], BuilderDoesNotExist(builder));
+
+        delete isBuilder[builder];
     }
 
     /// -----------------------------------------------------------------------

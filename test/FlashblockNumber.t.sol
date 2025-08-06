@@ -14,6 +14,7 @@ contract FlashblockNumberTest is Test {
     address public builder1 = makeAddr("builder1");
     address public builder2 = makeAddr("builder2");
     address public nonBuilder = makeAddr("nonBuilder");
+    address implementation = address(new FlashblockNumber());
 
     address[] public initialBuilders;
 
@@ -21,7 +22,6 @@ contract FlashblockNumberTest is Test {
         initialBuilders.push(builder1);
         initialBuilders.push(builder2);
 
-        address implementation = address(new FlashblockNumber());
         vm.prank(owner);
         address proxy = UnsafeUpgrades.deployUUPSProxy(
             implementation,
@@ -116,7 +116,7 @@ contract FlashblockNumberTest is Test {
 
     function test_AddBuilder_AlreadyExists() public {
         vm.prank(owner);
-        vm.expectRevert("Exists");
+        vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.AddressIsAlreadyABuilder.selector, builder1));
         flashblockNumber.addBuilder(builder1);
     }
 
@@ -137,13 +137,13 @@ contract FlashblockNumberTest is Test {
         assertFalse(flashblockNumber.isBuilder(builder1));
 
         vm.prank(builder1);
-        vm.expectRevert("NotBuilder");
+        vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.NonBuilderAddress.selector, builder1));
         flashblockNumber.incrementFlashblockNumber();
     }
 
     function test_RemoveBuilder_NotExists() public {
         vm.prank(owner);
-        vm.expectRevert("Missing");
+        vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.BuilderDoesNotExist.selector, nonBuilder));
         flashblockNumber.removeBuilder(nonBuilder);
     }
 
@@ -200,7 +200,7 @@ contract FlashblockNumberTest is Test {
 
         // now try to increment again, it should revert
         vm.prank(builder1);
-        vm.expectRevert("FlashblockNumber: flashblock number exceeded max per block");
+        vm.expectRevert((IFlashblockNumber.InvalidFlashblockNumberUpdate.selector));
         flashblockNumber.incrementFlashblockNumber();
 
         // Roll to next block and check reset
@@ -245,7 +245,7 @@ contract FlashblockNumberTest is Test {
 
                 if (increment > numFlashblocksPerBlock - 1) {
                     // this means we're trying to increment past the max per block
-                    vm.expectRevert("FlashblockNumber: flashblock number exceeded max per block");
+                    vm.expectRevert(IFlashblockNumber.InvalidFlashblockNumberUpdate.selector);
                     flashblockNumber.incrementFlashblockNumber();
                 } else {
                     // this is the normal case
@@ -258,6 +258,54 @@ contract FlashblockNumberTest is Test {
 
             currentBlock++;
             vm.roll(currentBlock);
+        }
+    }
+
+    // fuzz the invariant that the result of getFlashblockNumber should never be greater than
+    // or equal to numFlashblocksPerBlock()
+    function testFuzz_FlashblockNeverGreaterOrEqualToNumFlashblocksPerBlock(
+        uint256 _numFlashblocksPerBlock,
+        uint256 _numBlocksToTest,
+        uint256 _probabilityMissFlashblock
+    ) public {
+        vm.assume(_numFlashblocksPerBlock >= 1 && _numFlashblocksPerBlock <= 10);
+        // 1 to 10 blocks gives us good coverage while not blowing up the runtime
+        // of the fuzz test
+        vm.assume(_numBlocksToTest >= 1 && _numBlocksToTest <= 10);
+
+        // better simulate reality by allowing some probability that a flashblock
+        // increment will fail to occur
+        vm.assume(_probabilityMissFlashblock >= 0 && _probabilityMissFlashblock <= 100);
+
+        // make a new FlashblockNumber so we can ensure this property holds for different values of
+        // numFlashblocksPerBlock
+        vm.prank(owner);
+        address proxy = UnsafeUpgrades.deployUUPSProxy(
+            implementation,
+            abi.encodeCall(
+                FlashblockNumber.initialize,
+                (owner, initialBuilders, _numFlashblocksPerBlock, _numFlashblocksPerBlock - 1)
+            )
+        );
+        flashblockNumber = IFlashblockNumber(proxy);
+
+        // advance to next block, since we set the initial flashblock index to be
+        // _numFlashblocksPerBlock - 1 (a.k.a. the last flashblock in the block)
+        vm.roll(block.number + 1);
+
+        for (uint256 i = 0; i < _numBlocksToTest; i++) {
+            for (uint256 j = 0; j < _numFlashblocksPerBlock; j++) {
+                bool shouldMissFlashblock = vm.randomUint(0, 100) <= _probabilityMissFlashblock;
+                vm.prank(builder1);
+                if (!shouldMissFlashblock) {
+                    flashblockNumber.incrementFlashblockNumber();
+                }
+
+                // after each call to increment we check the invariant
+                assertTrue(flashblockNumber.getFlashblockNumber() < flashblockNumber.numFlashblocksPerBlock());
+            }
+
+            vm.roll(block.number + 1);
         }
     }
 
