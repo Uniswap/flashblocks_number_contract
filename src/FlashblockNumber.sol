@@ -68,7 +68,7 @@ contract FlashblockNumber is
     ) public initializer {
         require(
             _flashblockIndex < _numFlashblocksPerBlock,
-            "FlashblockNumber: flashblock index must be less than numFlashblocksPerBlock"
+            FlashblockIndexTooLarge(_flashblockIndex, _numFlashblocksPerBlock)
         );
 
         __Ownable_init(_owner);
@@ -94,20 +94,25 @@ contract FlashblockNumber is
     function incrementFlashblockNumber() external override {
         require(isBuilder[msg.sender], NonBuilderAddress(msg.sender));
 
-        if (flashblockIndex == numFlashblocksPerBlock - 1) {
-            // the current index is at the largest value it can be (according to numFlashblocksPerBlock),
-            // so this call to `incrementFlashblockNumber()` must be happening in a new block, and
-            // we should reset the index back to 0 to indicate we're storing the index for a new
-            // block. If we didn't make this check, then the index could be incremented to a value
-            // greater than the number of flashblocks in a block, which doesn't make any sense and must
-            // never happen
-            require(block.number > lastL2BlockNumber, InvalidFlashblockNumberUpdate(block.number, lastL2BlockNumber));
+        if (block.number > lastL2BlockNumber) {
+            // this is the case where we're in a new block compared to the prior call to
+            // `incrementFlashblockNumber`, so we need to reset the index to 0 to indicate
+            // we're starting a new block. The
+            lastL2BlockNumber = block.number;
             flashblockIndex = 0;
         } else {
             // this is the common case where the builder has called incrementFlashblockNumber
             // at the beginning of the flashblock and it's not the last flashblock, so we simply
-            // increment
-            assert(flashblockIndex < numFlashblocksPerBlock - 1);
+            // increment the index
+
+            // this check ensures that the flashblock index never increments beyond
+            // the value allowed by numFlashblocksPerBlock, which is a sanity check
+            // to ensure that the flashblock index is always within bounds.
+            // If we didn't make this check, then the index could be incremented to a value
+            // greater than the number of flashblocks in a block, which doesn't make any sense and must
+            // never happen.
+            require(flashblockIndex < numFlashblocksPerBlock - 1, InvalidFlashblockNumberUpdate());
+
             flashblockIndex++;
         }
 
@@ -146,6 +151,7 @@ contract FlashblockNumber is
         require(!isBuilder[builder], AddressIsAlreadyABuilder(builder));
 
         isBuilder[builder] = true;
+        emit BuilderAdded(builder);
     }
 
     /// @inheritdoc IFlashblockNumber
@@ -153,6 +159,7 @@ contract FlashblockNumber is
         require(isBuilder[builder], BuilderDoesNotExist(builder));
 
         delete isBuilder[builder];
+        emit BuilderRemoved(builder);
     }
 
     /// -----------------------------------------------------------------------

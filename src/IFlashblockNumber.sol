@@ -34,9 +34,10 @@ interface IFlashblockNumber {
     /// -----------------------------------------------------------------------
 
     error NonBuilderAddress(address addr);
-    error InvalidFlashblockNumberUpdate(uint256 currentBlockNumber, uint256 lastL2BlockNumber);
+    error InvalidFlashblockNumberUpdate();
     error AddressIsAlreadyABuilder(address addr);
     error BuilderDoesNotExist(address addr);
+    error FlashblockIndexTooLarge(uint256 flashblockIndex, uint256 numFlashblocksPerBlock);
 
     /// -----------------------------------------------------------------------
     /// Core Functions
@@ -62,7 +63,9 @@ interface IFlashblockNumber {
 
     /**
      * @notice Get the L2 block number when flashblock was last updated
-     * @return The L2 block number of last update
+     * @dev This is the block number of the last call to `incrementFlashblockNumber`,
+     * we track this so that we know to reset the flashblock index to 0 on a new L2 block
+     * @return The L2 block number of the most recent update to the flashblock index
      */
     function lastL2BlockNumber() external view returns (uint256);
 
