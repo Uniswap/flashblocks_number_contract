@@ -9,8 +9,16 @@ import "./IFlashblockNumber.sol";
 
 /**
  * @title FlashblockNumber
- * @notice Implementation contract for tracking flashblock indices within L2 blocks
- * @dev Upgradeable contract that provides onchain contracts access to current flashblock number
+ * @notice Implementation contract for tracking whenever a remote builder builds a flashblock.
+ * This allows bundles and onchain contracts to specify the range of flashblock number are valid for a
+ * transaction to occur in, similar to Solidity's block.number
+ * @dev The only addresses that are able to increment the flashblock number are the builder addresses, which
+ * are created within a TEE operated by builders like Flashbots. This ensures that only builders can
+ * increment the flashblock number, and that the flashblock number is monotonically increasing.
+ * @dev The contract is upgradeable so that the code can be updated without requiring third-party contracts
+ * that reference to point to the new implementation. This allows the contract to be updated without
+ * requiring a new deployment, and without requiring a new deployment of the contracts that reference
+ * the flashblock number.
  */
 contract FlashblockNumber is
     IFlashblockNumber,
@@ -23,13 +31,11 @@ contract FlashblockNumber is
     /// Storage
     /// -----------------------------------------------------------------------
 
-    /// @inheritdoc IFlashblockNumber
-    uint256 public override numFlashblocksPerBlock;
-
-    uint256 public flashblockIndex;
-
-    /// @inheritdoc IFlashblockNumber
-    uint256 public override lastL2BlockNumber;
+    /// @notice a monotonically increasing sequencer number that represents the count of flashblocks
+    /// that have been built by the remote builder. This allows bundles and onchain contracts to specify
+    /// the range of flashblock number are valid for a transaction to occur in, similar to Solidity's
+    /// block.number
+    uint256 public flashblockNumber;
 
     /// @inheritdoc IFlashblockNumber
     mapping(address => bool) public override isBuilder;
@@ -40,37 +46,10 @@ contract FlashblockNumber is
 
     /**
      * @notice Initialize the contract
-     * @notice It is the duty of the deployer to specify the flashblock index so that no matter which
-     * flashblock this contract is deployed on, the flashblock index will match the actual flashblock
-     * index within the block. If we didn't do this, the flashblock index might be different from the
-     * actual flashblock index within the block, and all flashblock numbers will be off by the difference
-     * between the flashblock index and the actual flashblock index within the block. The simplest way
-     * to set the flashblock index is for the deployer to set the flashblock index to `_numFlashblocksPerBlock   - 1`,
-     * and always deploy this contract in the last flashblock of the block. Then, all future calls to `incrementFlashblockNumber`
-     * will increment the flashblock index by 1, and the flashblock number will match the flashblock index.
-     * @dev The flashblock index is the index of the flashblock within the block when this
-     * contract is first deployed. We need the deployer to specify the flashblock index so that
-     * so that no matter which flashblock this contract is deployed on, the flashblock index will
-     * set on FlashblockNumber will match the actual flashblock index within the block. If we didn't
-     * do this, the flashblock index might be different from the actual flashblock index within the block,
-     * and all flashblock numbers will be off by the difference between the flashblock index and the
-     * actual flashblock index within the block
      * @param _owner Address that will own this contract
      * @param _initialBuilders Array of initial authorized builder addresses
-     * @param _numFlashblocksPerBlock Number of flashblocks per block
-     * @param _flashblockIndex Initial flashblock index
      */
-    function initialize(
-        address _owner,
-        address[] memory _initialBuilders,
-        uint256 _numFlashblocksPerBlock,
-        uint256 _flashblockIndex
-    ) public initializer {
-        require(
-            _flashblockIndex < _numFlashblocksPerBlock,
-            "FlashblockNumber: flashblock index must be less than numFlashblocksPerBlock"
-        );
-
+    function initialize(address _owner, address[] memory _initialBuilders) public initializer {
         __Ownable_init(_owner);
         __UUPSUpgradeable_init();
         __EIP712_init("FlashblockNumber", "1");
@@ -80,10 +59,6 @@ contract FlashblockNumber is
             isBuilder[_initialBuilders[i]] = true;
             emit BuilderAdded(_initialBuilders[i]);
         }
-
-        lastL2BlockNumber = block.number;
-        numFlashblocksPerBlock = _numFlashblocksPerBlock;
-        flashblockIndex = _flashblockIndex;
     }
 
     /// -----------------------------------------------------------------------
@@ -92,7 +67,10 @@ contract FlashblockNumber is
 
     /// @inheritdoc IFlashblockNumber
     function incrementFlashblockNumber() external override {
-        // TODO: Implement increment logic
+        require(isBuilder[msg.sender], NonBuilderAddress(msg.sender));
+
+        flashblockNumber++;
+        emit FlashblockIncremented(flashblockNumber);
     }
 
     /// -----------------------------------------------------------------------
@@ -101,8 +79,7 @@ contract FlashblockNumber is
 
     /// @inheritdoc IFlashblockNumber
     function getFlashblockNumber() external view override returns (uint256) {
-        // TODO: Implement getter
-        return 0;
+        return flashblockNumber;
     }
 
     /// -----------------------------------------------------------------------
@@ -110,13 +87,19 @@ contract FlashblockNumber is
     /// -----------------------------------------------------------------------
 
     /// @inheritdoc IFlashblockNumber
-    function addBuilder(address builder) external override {
-        // TODO: Implement add builder logic
+    function addBuilder(address builder) external override onlyOwner {
+        require(!isBuilder[builder], AddressIsAlreadyABuilder(builder));
+
+        isBuilder[builder] = true;
+        emit BuilderAdded(builder);
     }
 
     /// @inheritdoc IFlashblockNumber
-    function removeBuilder(address builder) external override {
-        // TODO: Implement remove builder logic
+    function removeBuilder(address builder) external override onlyOwner {
+        require(isBuilder[builder], BuilderDoesNotExist(builder));
+
+        delete isBuilder[builder];
+        emit BuilderRemoved(builder);
     }
 
     /// -----------------------------------------------------------------------
