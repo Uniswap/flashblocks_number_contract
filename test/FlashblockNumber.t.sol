@@ -8,7 +8,6 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 contract FlashblockNumberTest is Test {
     IFlashblockNumber public flashblockNumber;
-    uint256 public numFlashblocksPerBlock = 5; // this is the value we intend to use on Unichain
 
     address public owner = makeAddr("owner");
     address public builder1 = makeAddr("builder1");
@@ -212,9 +211,6 @@ contract FlashblockNumberTest is Test {
             flashblockNumber.addBuilder(newBuilders[i]);
             assertTrue(flashblockNumber.isBuilder(newBuilders[i]));
 
-            if (flashblockNumber.getFlashblockNumber() == numFlashblocksPerBlock - 1) {
-                vm.roll(block.number + 1);
-            }
             vm.prank(newBuilders[i]);
             flashblockNumber.incrementFlashblockNumber();
         }
