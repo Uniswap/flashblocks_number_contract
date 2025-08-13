@@ -1,12 +1,10 @@
 # FlashblockNumber Contract
 
-A smart contract for tracking flashblock indices on Unichain, enabling onchain contracts to be aware of their current flashblock position within L2 blocks
+A smart contract for tracking [flashblock](https://github.com/flashbots/rollup-boost/blob/c16d1c187dc4bf7179a1d4727689a31cb0429de1/specs/flashblocks.md) ranges on Unichain, enabling smart contracts to revert if their function calls do not fall within the specified flashblock bounds.
 
 ## Overview
 
-The Flashblocks Number Contract provides a simple and onchain way to track and expose the current flashblock index within each L2 block on Unichain. Similar to how Solidity's `block.number` provides block-level granularity, this contract enables flashblock-level granularity for time-sensitive applications using the `FlashblockNumber.getFlashblockNumber()` function.
-
-If you are new to Flashblocks, [see the specification for more details](https://github.com/flashbots/rollup-boost/blob/c16d1c187dc4bf7179a1d4727689a31cb0429de1/specs/flashblocks.md)
+The Flashblocks Number Contract provides a simple and onchain method for checking if your current transaction exists within a given range of flashblocks. Similar to the common Solidity pattern of functions providing a `deadline` argument that is checked against `block.number`, this contract emulates `block.number`, but for Flashblocks. Similar to how Solidity's `block.number` provides block-level granularity, this contract enables flashblock-level granularity for time-sensitive applications using the `FlashblockNumber.getFlashblockNumber()` function.
 
 ## Deploy
 

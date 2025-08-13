@@ -36,6 +36,7 @@ interface IFlashblockNumber {
     error NonBuilderAddress(address addr);
     error AddressIsAlreadyABuilder(address addr);
     error BuilderDoesNotExist(address addr);
+    error MismatchedFlashblockNumber(uint256 expectedFlashblockNumber, uint256 actualFlashblockNumber);
 
     /// -----------------------------------------------------------------------
     /// Core Functions
@@ -44,10 +45,20 @@ interface IFlashblockNumber {
     /**
      * @notice Increment the flashblock index once per flashblock
      * @dev Must be called by authorized builder as first tx in flashblock
-     *      Automatically resets to 0 on new L2 block, otherwise increments by 1
-     * @custom:throws NotBuilder if caller is not an authorized builder
+     * @custom:throws NonBuilderAddress if caller is not an authorized builder
      */
     function incrementFlashblockNumber() external;
+
+    /**
+     * @notice Increment the flashblock index once per flashblock using a signature
+     * @dev Must be called by authorized builder as first tx in flashblock
+     * @dev The currentFlashblockNumber is used to prevent replay attacks
+     * @param currentFlashblockNumber The current flashblock number
+     * @param signature The signature of the builder
+     * @custom:throws NonBuilderAddress if caller is not an authorized builder
+     * @custom:throws MismatchedFlashblockNumber if the current flashblock number does not match the expected flashblock number
+     */
+    function permitIncrementFlashblockNumber(uint256 currentFlashblockNumber, bytes memory signature) external;
 
     /// -----------------------------------------------------------------------
     /// View Functions
@@ -73,7 +84,7 @@ interface IFlashblockNumber {
     /**
      * @notice Add a new authorized builder
      * @param builder Address of builder to add
-     * @custom:throws Exists if builder is already authorized
+     * @custom:throws AddressIsAlreadyABuilder if builder is already authorized
      * @custom:access onlyOwner
      */
     function addBuilder(address builder) external;
@@ -81,7 +92,7 @@ interface IFlashblockNumber {
     /**
      * @notice Remove an authorized builder
      * @param builder Address of builder to remove
-     * @custom:throws Missing if builder is not currently authorized
+     * @custom:throws BuilderDoesNotExist if builder is not currently authorized
      * @custom:access onlyOwner
      */
     function removeBuilder(address builder) external;

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.28;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./IFlashblockNumber.sol";
 
 /**
@@ -40,6 +41,10 @@ contract FlashblockNumber is
     /// @inheritdoc IFlashblockNumber
     mapping(address => bool) public override isBuilder;
 
+    /// @notice EIP-712 Typehash for the `permitIncrementFlashblockNumber` function
+    bytes32 public constant PERMIT_INCREMENT_TYPEHASH =
+        keccak256("PermitIncrementFlashblock(uint256 currentFlashblockNumber)");
+
     /// -----------------------------------------------------------------------
     /// Initializer
     /// -----------------------------------------------------------------------
@@ -67,7 +72,34 @@ contract FlashblockNumber is
 
     /// @inheritdoc IFlashblockNumber
     function incrementFlashblockNumber() external override {
-        require(isBuilder[msg.sender], NonBuilderAddress(msg.sender));
+        _incrementFlashblockNumber(msg.sender);
+    }
+
+    /// @inheritdoc IFlashblockNumber
+    function permitIncrementFlashblockNumber(uint256 currentFlashblockNumber, bytes memory signature)
+        external
+        override
+    {
+        // compare the flashblock number the caller _thinks_ is the current flashblock number
+        // with the actual current flashblock number. This prevents EIP-712 replay attacks, because
+        // the signature will be forever invalid once the flashblock number is incremented in
+        // _incrementFlashblockNumber
+        require(
+            currentFlashblockNumber == flashblockNumber,
+            MismatchedFlashblockNumber(currentFlashblockNumber, flashblockNumber)
+        );
+
+        bytes32 digest = hashTypedDataV4(computeStructHash(currentFlashblockNumber));
+        address signer = ECDSA.recover(digest, signature);
+
+        _incrementFlashblockNumber(signer);
+    }
+
+    /// @notice Increment the flashblock number and emit the FlashblockIncremented event
+    /// @param builder The builder that is incrementing the flashblock number
+    /// @custom:throws NonBuilderAddress if the builder is not an authorized builder
+    function _incrementFlashblockNumber(address builder) internal {
+        require(isBuilder[builder], NonBuilderAddress(builder));
 
         flashblockNumber++;
         emit FlashblockIncremented(flashblockNumber);
@@ -110,4 +142,30 @@ contract FlashblockNumber is
     /// @param newImplementation Address of the new implementation contract
     /// @custom:access onlyOwner
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    /// -----------------------------------------------------------------------
+    /// EIP-712 Functions
+    /// -----------------------------------------------------------------------
+
+    /**
+     * @notice Computes the struct hash for the EIP-712 signature
+     * @dev This is useful for when both onchain and offchain users want to compute the struct hash
+     * for the EIP-712 signature, and then use it to verify the signature
+     * @param currentFlashblockNumber The current flashblock number to use as nonce
+     * @return The struct hash for the EIP-712 signature
+     */
+    function computeStructHash(uint256 currentFlashblockNumber) public pure returns (bytes32) {
+        return keccak256(abi.encode(PERMIT_INCREMENT_TYPEHASH, currentFlashblockNumber));
+    }
+
+    /**
+     * @notice Computes the digest for the EIP-712 signature
+     * @dev This is useful for when both onchain and offchain users want to compute the digest
+     * for the EIP-712 signature, and then use it to verify the signature
+     * @param structHash The struct hash for the EIP-712 signature
+     * @return The digest for the EIP-712 signature
+     */
+    function hashTypedDataV4(bytes32 structHash) public view returns (bytes32) {
+        return _hashTypedDataV4(structHash);
+    }
 }
