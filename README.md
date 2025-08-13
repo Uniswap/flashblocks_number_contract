@@ -8,12 +8,24 @@ The Flashblocks Number Contract provides a simple and onchain way to track and e
 
 If you are new to Flashblocks, [see the specification for more details](https://github.com/flashbots/rollup-boost/blob/c16d1c187dc4bf7179a1d4727689a31cb0429de1/specs/flashblocks.md)
 
+## Deploy
+
+````
+# fill out the .env with the intended arguments, such as whole the initial owner of the contract (i.e. who can modify the array of builders, and who can upgrade the contract) as well as the initial list of builder addresses (i.e. which addresses are allowed to call `incrementFlashblockNumber`)
+cp env.sample .env
+
+# load your environment variables
+source .env
+
+# deploy the FlashblockNumber contract using the arguments from .env. Replace the `--chain` argument with the chain id of the chain you want to deploy to; in this case we deploy to Unichain Sepolia
+forge script script/FlashblockNumber.s.sol --rpc-url $RPC_URL --broadcast --verify --interactives 1 --chain 1301
+
 ### Key Features
 
-- **Flashblock Tracking**: Maintains a monotonically increasing flashblock number within each L2 block that resets to 0 at the start of each new L2 block
+- **Flashblock Tracking**: Maintains a monotonically increasing flashblock number which acts as a counter external contracts can use to track a range of flashblocks
 - **Builder Authorization**: Only allowlisted builders can increment the flashblock counter, ensuring controlled and reliable updates from trusted builder (e.g. Flashbots)
 - **Builder High Availability**: Multiple builder addresses are permissioned to update the onchain flashblock number, allowing multiple builders to fail and still allow for a healthy builder to update the onchain flashblock number
-- **Robust Against Total Remote Builder Failure**: Even if all builders fail, or there is a network error between the Unichain sequencer and the remote builder, the FlashblockNumber contract will return a flashblock number of `0`, which ensures that external smart contracts will still function correctly even when a block is built locally (i.e. not by a remote builder)
+- **Robust Against Total Remote Builder Failure**: Even if all builders fail, or there is a network error between the Unichain sequencer and the remote builder, the FlashblockNumber contract will return a the latest flashblock number, which ensures that external smart contracts will still function correctly even when a block is built locally (i.e. not by a remote builder)
 - **UUPS Upgradeable**: Implements the Universal Upgradeable Proxy Standard for future contract upgrades/improvements. Once the maintainers decide there are no need for further updates, and the contract has been battle-tested, they will transfer ownership to an address with no known private key (i.e. there will be no owner of the FlashblockNumber contract)
 - **EIP-712 Support**: Includes meta-transaction capabilities to simplify TEE-builder gas concerns
 - **Event Emission**: Emits events for flashblock increments and builder management for easy monitoring
@@ -29,14 +41,14 @@ If you are new to Flashblocks, [see the specification for more details](https://
 
 1. **Builder Limitations**
 
-   - Strict per-block monotonic ordering enforced
+   - Strict monotonic flashblock number ordering enforced
    - updates to the onchain flashblock number must occur at the beginning of each flashblock
 
 2. **Invariants**
 
-   - Flashblock number must reset to 0 on new L2 blocks
+   - Flashblock never decreases (except from reorgs)
    - Only allowlisted builders can call `incrementFlashblockNumber()`
-   - Calls must occur exactly once per flashblock in ascending order
+   - Calls must occur exactly once per flashblock
 
 3. **Security Considerations**
    - No external calls during state updates to prevent reentrancy
@@ -44,8 +56,7 @@ If you are new to Flashblocks, [see the specification for more details](https://
 
 ### Operational Constraints
 
-- **Builder Reliability**: System depends on at least one active builder to maintain liveness
-- **Block Rollover**: Flashblock tracking pauses naturally during L2 block transitions
+- **Builder Reliability**: System depends on at least one active builder to maintain flashblock number liveness
 - **Upgrade Governance**: Contract upgrades require multisig approval
 
 ## Getting Started
@@ -63,7 +74,7 @@ If you are new to Flashblocks, [see the specification for more details](https://
 ```bash
 git clone https://github.com/uniswap/flashblocks_number_contract
 cd flashblocks_number_contract
-```
+````
 
 2. Install dependencies:
 
