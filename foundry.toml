@@ -1,6 +1,23 @@
 [profile.default]
 src = "src"
-out = "out"
 libs = ["lib"]
+out = 'out'
+solc_version = '0.8.28'
+optimizer_runs = 44444444
+via_ir = true
+ffi = true
+ast = true
+build_info = true
+extra_output = ["storageLayout"]
+evm_version = "prague"
+gas_limit = "3000000000"
+fuzz_runs = 10_000
+bytecode_hash = "none"
+
+[etherscan]
+sepolia = { key = "${ETHERSCAN_API_KEY}" }
+
+[rpc_endpoints]
+sepolia = "${RPC_URL}"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
