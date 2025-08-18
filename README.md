@@ -6,9 +6,47 @@ A smart contract for tracking [flashblock](https://github.com/flashbots/rollup-b
 
 The Flashblocks Number Contract provides a simple and onchain method for checking if your current transaction exists within a given range of flashblocks. Similar to the common Solidity pattern of functions providing a `deadline` argument that is checked against `block.number`, this contract emulates `block.number`, but for Flashblocks. Similar to how Solidity's `block.number` provides block-level granularity, this contract enables flashblock-level granularity for time-sensitive applications using the `FlashblockNumber.getFlashblockNumber()` function.
 
-## Deploy
+## Getting Started
 
-````
+### Prerequisites
+
+- [Foundry](https://getfoundry.sh/) installed
+- Node.js 16+ (for additional tooling)
+- Git
+
+### Installation
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/uniswap/flashblocks_number_contract
+cd flashblocks_number_contract
+```
+
+2. Install dependencies:
+
+```bash
+forge install
+```
+
+3. Build the project:
+
+```bash
+forge build
+```
+
+### Deployment
+
+1. Set up environment variables:
+
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+2. Deploy using the deployment script:
+
+```bash
 # fill out the .env with the intended arguments, such as whole the initial owner of the contract (i.e. who can modify the array of builders, and who can upgrade the contract) as well as the initial list of builder addresses (i.e. which addresses are allowed to call `incrementFlashblockNumber`)
 cp env.sample .env
 
@@ -17,8 +55,25 @@ source .env
 
 # deploy the FlashblockNumber contract using the arguments from .env. Replace the `--chain` argument with the chain id of the chain you want to deploy to; in this case we deploy to Unichain Sepolia
 forge script script/FlashblockNumber.s.sol --rpc-url $RPC_URL --broadcast --verify --interactives 1 --chain 1301
+```
 
-### Key Features
+### Integration
+
+To integrate with the Flashblocks Number Contract:
+
+```solidity
+import "./IFlashblockNumber.sol";
+
+contract YourContract {
+    IFlashblockNumber public flashblockNumber;
+
+    function checkFlashblock() internal view returns (uint256) {
+        return flashblockNumber.getFlashblockNumber();
+    }
+}
+```
+
+## Key Features
 
 - **Flashblock Tracking**: Maintains a monotonically increasing flashblock number which acts as a counter external contracts can use to track a range of flashblocks
 - **Builder Authorization**: Only allowlisted builders can increment the flashblock counter, ensuring controlled and reliable updates from trusted builder (e.g. Flashbots)
@@ -56,66 +111,6 @@ forge script script/FlashblockNumber.s.sol --rpc-url $RPC_URL --broadcast --veri
 
 - **Builder Reliability**: System depends on at least one active builder to maintain flashblock number liveness
 - **Upgrade Governance**: Contract upgrades require multisig approval
-
-## Getting Started
-
-### Prerequisites
-
-- [Foundry](https://getfoundry.sh/) installed
-- Node.js 16+ (for additional tooling)
-- Git
-
-### Installation
-
-1. Clone the repository:
-
-```bash
-git clone https://github.com/uniswap/flashblocks_number_contract
-cd flashblocks_number_contract
-````
-
-2. Install dependencies:
-
-```bash
-forge install
-```
-
-3. Build the project:
-
-```bash
-forge build
-```
-
-### Deployment
-
-1. Set up environment variables:
-
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
-
-2. Deploy using the deployment script:
-
-```bash
-forge script script/Deploy.s.sol:DeployFlashblockNumber --rpc-url $RPC_URL --broadcast --verify
-```
-
-### Integration
-
-To integrate with the Flashblocks Number Contract:
-
-```solidity
-import "./IFlashblockNumber.sol";
-
-contract YourContract {
-    IFlashblockNumber public flashblockNumber;
-
-    function checkFlashblock() internal view returns (uint256) {
-        return flashblockNumber.getFlashblockNumber();
-    }
-}
-```
 
 ## Testing
 
