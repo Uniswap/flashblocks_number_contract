@@ -40,16 +40,13 @@ forge build
 1. Set up environment variables:
 
 ```bash
-cp .env.example .env
-# Edit .env with your configuration
+# fill out the .env with the intended arguments, such as whole the initial owner of the contract (i.e. who can modify the array of builders, and who can upgrade the contract) as well as the initial list of builder addresses (i.e. which addresses are allowed to call `incrementFlashblockNumber`)
+cp env.sample .env
 ```
 
 2. Deploy using the deployment script:
 
 ```bash
-# fill out the .env with the intended arguments, such as whole the initial owner of the contract (i.e. who can modify the array of builders, and who can upgrade the contract) as well as the initial list of builder addresses (i.e. which addresses are allowed to call `incrementFlashblockNumber`)
-cp env.sample .env
-
 # load your environment variables
 source .env
 
