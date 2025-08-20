@@ -4,7 +4,7 @@ A smart contract for tracking [flashblock](https://github.com/flashbots/rollup-b
 
 ## Overview
 
-The Flashblocks Number Contract provides a simple and onchain method for checking if your current transaction exists within a given range of flashblocks. Similar to the common Solidity pattern of functions providing a `deadline` argument that is checked against `block.number`, this contract emulates `block.number`, but for Flashblocks. Similar to how Solidity's `block.number` provides block-level granularity, this contract enables flashblock-level granularity for time-sensitive applications using the `FlashblockNumber.getFlashblockNumber()` function.
+The Flashblocks Number Contract provides a simple and onchain method for checking if your current transaction exists within a given range of flashblocks. Similar to how Solidity's `block.number` provides block-level granularity, this contract enables flashblock-level granularity for time-sensitive applications using the `FlashblockNumber.getFlashblockNumber()` function.
 
 ## Getting Started
 
