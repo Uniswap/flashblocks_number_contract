@@ -10,7 +10,6 @@ interface IFlashblockNumber {
     /// -----------------------------------------------------------------------
     /// Events
     /// -----------------------------------------------------------------------
-
     /**
      * @notice Emitted when flashblock index is incremented
      * @param newFlashblockIndex The new flashblock index
@@ -71,29 +70,18 @@ interface IFlashblockNumber {
     function getFlashblockNumber() external view returns (uint256);
 
     /**
-     * @notice Check if an address is an authorized builder
-     * @param builder Address to check
-     * @return True if the address is an authorized builder
+     * @notice Get the address of the FlashtestationRegistry contract
+     * @dev This is used to verify that the builder is registered with the FlashtestationRegistry
+     * @dev You can find the FlashtestationRegistry contract at https://github.com/flashbots/flashtestations/blob/main/src/FlashtestationRegistry.sol
+     * @return The address of the FlashtestationRegistry contract
      */
-    function isBuilder(address builder) external view returns (bool);
-
-    /// -----------------------------------------------------------------------
-    /// Governance Functions
-    /// -----------------------------------------------------------------------
+    function registry() external view returns (address);
 
     /**
-     * @notice Add a new authorized builder
-     * @param builder Address of builder to add
-     * @custom:throws AddressIsAlreadyABuilder if builder is already authorized
-     * @custom:access onlyOwner
+     * @notice Get the address of the BlockBuilderPolicy contract
+     * @dev This is used to verify that the builder is authorized to build flashblocks
+     * @dev You can find the BlockBuilderPolicy contract at https://github.com/flashbots/flashtestations/blob/main/src/BlockBuilderPolicy.sol
+     * @return The address of the BlockBuilderPolicy contract
      */
-    function addBuilder(address builder) external;
-
-    /**
-     * @notice Remove an authorized builder
-     * @param builder Address of builder to remove
-     * @custom:throws BuilderDoesNotExist if builder is not currently authorized
-     * @custom:access onlyOwner
-     */
-    function removeBuilder(address builder) external;
+    function policy() external view returns (address);
 }

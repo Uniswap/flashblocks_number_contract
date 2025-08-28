@@ -1,1 +1,4 @@
 @openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+@flashbots/flashtestations/=lib/flashtestations/src/
+automata-dcap-attestation/=lib/flashtestations/lib/automata-dcap-attestation/evm/
+solady/=lib/flashtestations/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/lib/solady/src/
