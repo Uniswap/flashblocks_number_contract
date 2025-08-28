@@ -15,7 +15,7 @@ fuzz_runs = 10_000
 bytecode_hash = "none"
 
 [etherscan]
-sepolia = { key = "${ETHERSCAN_API_KEY}" }
+unichain-sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1301" }
 
 [rpc_endpoints]
 sepolia = "${RPC_URL}"
