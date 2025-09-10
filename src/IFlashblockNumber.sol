@@ -13,7 +13,7 @@ interface IFlashblockNumber {
 
     /**
      * @notice Emitted when flashblock index is incremented
-     * @param newFlashblockIndex The new flashblock index (0-indexed within each L2 block)
+     * @param newFlashblockIndex The new flashblock index
      */
     event FlashblockIncremented(uint256 newFlashblockIndex);
 
@@ -66,7 +66,7 @@ interface IFlashblockNumber {
 
     /**
      * @notice Get the current flashblock number
-     * @return The current flashblock index (0-indexed within current L2 block)
+     * @return The current flashblock index
      */
     function getFlashblockNumber() external view returns (uint256);
 
