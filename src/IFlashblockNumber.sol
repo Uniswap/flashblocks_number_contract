@@ -10,7 +10,6 @@ interface IFlashblockNumber {
     /// -----------------------------------------------------------------------
     /// Events
     /// -----------------------------------------------------------------------
-
     /**
      * @notice Emitted when flashblock index is incremented
      * @param newFlashblockIndex The new flashblock index (0-indexed within each L2 block)
@@ -37,6 +36,8 @@ interface IFlashblockNumber {
     error AddressIsAlreadyABuilder(address addr);
     error BuilderDoesNotExist(address addr);
     error MismatchedFlashblockNumber(uint256 expectedFlashblockNumber, uint256 actualFlashblockNumber);
+    /// @notice Emitted when the address is not in the approvedWorkloads mapping
+    error UnauthorizedBlockBuilder(address caller);
 
     /// -----------------------------------------------------------------------
     /// Core Functions

@@ -1,1 +1,2 @@
 @openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+@flashbots/flashtestations/=lib/flashtestations/src/

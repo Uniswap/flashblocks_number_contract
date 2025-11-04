@@ -6,7 +6,20 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {WorkloadId} from "@flashbots/flashtestations/interfaces/IBlockBuilderPolicy.sol";
+import {IFlashtestationRegistry} from "@flashbots/flashtestations/interfaces/IFlashtestationRegistry.sol";
 import "./IFlashblockNumber.sol";
+
+/**
+ * @notice Cached workload information for gas optimization
+ * @dev Stores computed workloadId and associated quoteHash to avoid expensive recomputation
+ */
+struct CachedWorkload {
+    /// @notice The computed workload identifier
+    WorkloadId workloadId;
+    /// @notice The keccak256 hash of the raw quote used to compute this workloadId
+    bytes32 quoteHash;
+}
 
 /**
  * @title FlashblockNumber
@@ -21,22 +34,19 @@ import "./IFlashblockNumber.sol";
  * requiring a new deployment, and without requiring a new deployment of the contracts that reference
  * the flashblock number.
  */
-contract FlashblockNumber is
-    IFlashblockNumber,
-    Initializable,
-    UUPSUpgradeable,
-    OwnableUpgradeable,
-    EIP712Upgradeable
-{
+contract FlashblockNumber is IFlashblockNumber, Initializable, UUPSUpgradeable, OwnableUpgradeable, EIP712Upgradeable {
     /// -----------------------------------------------------------------------
     /// Storage
     /// -----------------------------------------------------------------------
-
     /// @notice a monotonically increasing sequencer number that represents the count of flashblocks
     /// that have been built by the remote builder. This allows bundles and onchain contracts to specify
     /// the range of flashblock number are valid for a transaction to occur in, similar to Solidity's
     /// block.number
     uint256 public flashblockNumber;
+
+    /// @notice Cache of computed workloadIds to avoid expensive recomputation
+    /// @dev Maps teeAddress to cached workload information for gas optimization
+    mapping(address teeAddress => CachedWorkload) private cachedWorkloads;
 
     /// @inheritdoc IFlashblockNumber
     mapping(address => bool) public override isBuilder;
@@ -52,18 +62,11 @@ contract FlashblockNumber is
     /**
      * @notice Initialize the contract
      * @param _owner Address that will own this contract
-     * @param _initialBuilders Array of initial authorized builder addresses
      */
-    function initialize(address _owner, address[] memory _initialBuilders) public initializer {
+    function initialize(address _owner) public initializer {
         __Ownable_init(_owner);
         __UUPSUpgradeable_init();
         __EIP712_init("FlashblockNumber", "1");
-
-        // Add initial builders
-        for (uint256 i = 0; i < _initialBuilders.length; i++) {
-            isBuilder[_initialBuilders[i]] = true;
-            emit BuilderAdded(_initialBuilders[i]);
-        }
     }
 
     /// -----------------------------------------------------------------------
@@ -99,10 +102,59 @@ contract FlashblockNumber is
     /// @param builder The builder that is incrementing the flashblock number
     /// @custom:throws NonBuilderAddress if the builder is not an authorized builder
     function _incrementFlashblockNumber(address builder) internal {
-        require(isBuilder[builder], NonBuilderAddress(builder));
+        // Check if the caller is an authorized TEE block builder for our Policy and update cache
+        (bool allowed, WorkloadId workloadId) = _cachedIsAllowedPolicy(builder);
+        require(allowed, UnauthorizedBlockBuilder(builder));
+        // require(isBuilder[builder], NonBuilderAddress(builder));
 
         flashblockNumber++;
         emit FlashblockIncremented(flashblockNumber);
+    }
+
+    /// @notice isAllowedPolicy but with caching to reduce gas costs
+    /// @dev This function is only used by the verifyBlockBuilderProof function, which needs to be as efficient as possible
+    /// because it is called onchain for every flashblock. The workloadId is cached to avoid expensive recomputation
+    /// @dev A careful reader will notice that this function does not delete stale cache entries. It overwrites them
+    /// if the underlying TEE registration is still valid. But for stale cache entries in every other scenario, the
+    /// cache entry persists indefinitely. This is because every other instance results in a return value of (false, 0)
+    /// to the caller (which is always the verifyBlockBuilderProof function) and it immediately reverts. This is an unfortunate
+    /// consequence of our need to make this function as gas-efficient as possible, otherwise we would try to cleanup
+    /// stale cache entries
+    /// @param teeAddress The TEE-controlled address
+    /// @return True if the TEE is using an approved workload in the policy
+    /// @return The workloadId of the TEE that is using an approved workload in the policy, or 0 if
+    /// the TEE is not using an approved workload in the policy
+    function _cachedIsAllowedPolicy(address teeAddress) private returns (bool, WorkloadId) {
+        // Get the current registration status (fast path)
+        (bool isValid, bytes32 quoteHash) = IFlashtestationRegistry(registry).getRegistrationStatus(teeAddress);
+        if (!isValid) {
+            return (false, WorkloadId.wrap(0));
+        }
+
+        // Now, check if we have a cached workload for this TEE
+        CachedWorkload memory cached = cachedWorkloads[teeAddress];
+
+        // Check if we've already fetched and computed the workloadId for this TEE
+        bytes32 cachedWorkloadId = WorkloadId.unwrap(cached.workloadId);
+        if (cachedWorkloadId != 0 && cached.quoteHash == quoteHash) {
+            // Cache hit - verify the workload is still a part of this policy's approved workloads
+            if (bytes(IBlockBuilderPolicy(policy).getWorkloadMetadata(cachedWorkloadId).commitHash).length > 0) {
+                return (true, cached.workloadId);
+            } else {
+                // The workload is no longer approved, so the policy is no longer valid for this TEE\
+                return (false, WorkloadId.wrap(0));
+            }
+        } else {
+            // Cache miss or quote changed - use the view function to get the result
+            (bool allowed, WorkloadId workloadId) = IBlockBuilderPolicy(policy).isAllowedPolicy(teeAddress);
+
+            if (allowed) {
+                // Update cache with the new workload ID
+                cachedWorkloads[teeAddress] = CachedWorkload({workloadId: workloadId, quoteHash: quoteHash});
+            }
+
+            return (allowed, workloadId);
+        }
     }
 
     /// -----------------------------------------------------------------------
@@ -112,26 +164,6 @@ contract FlashblockNumber is
     /// @inheritdoc IFlashblockNumber
     function getFlashblockNumber() external view override returns (uint256) {
         return flashblockNumber;
-    }
-
-    /// -----------------------------------------------------------------------
-    /// Governance Functions
-    /// -----------------------------------------------------------------------
-
-    /// @inheritdoc IFlashblockNumber
-    function addBuilder(address builder) external override onlyOwner {
-        require(!isBuilder[builder], AddressIsAlreadyABuilder(builder));
-
-        isBuilder[builder] = true;
-        emit BuilderAdded(builder);
-    }
-
-    /// @inheritdoc IFlashblockNumber
-    function removeBuilder(address builder) external override onlyOwner {
-        require(isBuilder[builder], BuilderDoesNotExist(builder));
-
-        delete isBuilder[builder];
-        emit BuilderRemoved(builder);
     }
 
     /// -----------------------------------------------------------------------
