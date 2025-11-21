@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {FlashblockNumber} from "../src/FlashblockNumber.sol";
 import {IFlashblockNumber} from "../src/IFlashblockNumber.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MockFlashtestationRegistry} from "./mocks/MockFlashtestationRegistry.sol";
+import {MockBlockBuilderPolicy, WorkloadId} from "./mocks/MockBlockBuilderPolicy.sol";
 
 contract FlashblockNumberTest is Test {
     IFlashblockNumber public flashblockNumber;
+    MockFlashtestationRegistry public registry;
+    MockBlockBuilderPolicy public policy;
 
     address public owner = makeAddr("owner");
     address public builder1 = makeAddr("builder1");
@@ -17,26 +20,41 @@ contract FlashblockNumberTest is Test {
     address implementation = address(new FlashblockNumber());
 
     // private keys cannot be greater than or equal to this value
-    uint256 public SECP256K1_CURVE_LIMIT =
+    uint256 public constant SECP256K1_CURVE_LIMIT =
         115792089237316195423570985008687907852837564279074904382605163141518161494337;
 
-    address[] public initialBuilders;
+    // WorkloadId for testing
+    WorkloadId public testWorkloadId = WorkloadId.wrap(keccak256("test-workload"));
+    bytes32 public testQuoteHash = keccak256("test-quote");
 
     function setUp() public {
-        initialBuilders.push(builder1);
-        initialBuilders.push(builder2);
+        // Deploy mock contracts
+        registry = new MockFlashtestationRegistry();
+        policy = new MockBlockBuilderPolicy();
 
+        // Set up mock state for builder1 and builder2
+        registry.setRegistrationStatus(builder1, true, testQuoteHash);
+        registry.setRegistrationStatus(builder2, true, testQuoteHash);
+
+        policy.setPolicyStatus(builder1, true, testWorkloadId);
+        policy.setPolicyStatus(builder2, true, testWorkloadId);
+
+        // Set up workload metadata so the workload is considered valid
+        string[] memory sourceLocators = new string[](1);
+        sourceLocators[0] = "github.com/test/repo";
+        policy.setWorkloadMetadata(testWorkloadId, "abc123", sourceLocators);
+
+        // Deploy FlashblockNumber with the mock registry and policy
         vm.prank(owner);
         address proxy = UnsafeUpgrades.deployUUPSProxy(
-            implementation, abi.encodeCall(FlashblockNumber.initialize, (owner, initialBuilders))
+            implementation, abi.encodeCall(FlashblockNumber.initialize, (owner, address(registry), address(policy)))
         );
         flashblockNumber = IFlashblockNumber(proxy);
     }
 
     function test_InitialState() public view {
-        assertTrue(flashblockNumber.isBuilder(builder1));
-        assertTrue(flashblockNumber.isBuilder(builder2));
-        assertFalse(flashblockNumber.isBuilder(nonBuilder));
+        assertEq(flashblockNumber.registry(), address(registry));
+        assertEq(flashblockNumber.policy(), address(policy));
         assertEq(flashblockNumber.getFlashblockNumber(), 0);
     }
 
@@ -79,58 +97,52 @@ contract FlashblockNumberTest is Test {
         flashblockNumber.incrementFlashblockNumber();
     }
 
-    function test_AddBuilder() public {
-        address newBuilder = makeAddr("newBuilder");
-
-        vm.prank(owner);
-        vm.expectEmit();
-        emit IFlashblockNumber.BuilderAdded(newBuilder);
-        flashblockNumber.addBuilder(newBuilder);
-
-        assertTrue(flashblockNumber.isBuilder(newBuilder));
-
-        vm.prank(newBuilder);
+    function test_AuthorizedBuilder_CanIncrement() public {
+        // Test that an authorized builder can increment
+        vm.prank(builder1);
         flashblockNumber.incrementFlashblockNumber();
         assertEq(flashblockNumber.getFlashblockNumber(), 1);
     }
 
-    function test_AddBuilder_AlreadyExists() public {
-        vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.AddressIsAlreadyABuilder.selector, builder1));
-        flashblockNumber.addBuilder(builder1);
-    }
-
-    function test_AddBuilder_OnlyOwner() public {
-        address newBuilder = makeAddr("newBuilder");
-
+    function test_UnauthorizedBuilder_CannotIncrement() public {
+        // Test that a builder without registration cannot increment
         vm.prank(nonBuilder);
-        vm.expectRevert();
-        flashblockNumber.addBuilder(newBuilder);
+        vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.NonBuilderAddress.selector, nonBuilder));
+        flashblockNumber.incrementFlashblockNumber();
     }
 
-    function test_RemoveBuilder() public {
-        vm.prank(owner);
-        vm.expectEmit();
-        emit IFlashblockNumber.BuilderRemoved(builder1);
-        flashblockNumber.removeBuilder(builder1);
-
-        assertFalse(flashblockNumber.isBuilder(builder1));
+    function test_RevokedRegistration_CannotIncrement() public {
+        // Revoke builder1's registration
+        registry.setRegistrationStatus(builder1, false, testQuoteHash);
 
         vm.prank(builder1);
         vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.NonBuilderAddress.selector, builder1));
         flashblockNumber.incrementFlashblockNumber();
     }
 
-    function test_RemoveBuilder_NotExists() public {
-        vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.BuilderDoesNotExist.selector, nonBuilder));
-        flashblockNumber.removeBuilder(nonBuilder);
+    function test_RevokedPolicy_CannotIncrement() public {
+        // Revoke builder1's policy status
+        policy.setPolicyStatus(builder1, false, testWorkloadId);
+
+        vm.prank(builder1);
+        vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.NonBuilderAddress.selector, builder1));
+        flashblockNumber.incrementFlashblockNumber();
     }
 
-    function test_RemoveBuilder_OnlyOwner() public {
-        vm.prank(nonBuilder);
-        vm.expectRevert();
-        flashblockNumber.removeBuilder(builder1);
+    function test_InvalidWorkload_CannotIncrement() public {
+        // First increment to populate the cache
+        vm.prank(builder1);
+        flashblockNumber.incrementFlashblockNumber();
+        assertEq(flashblockNumber.getFlashblockNumber(), 1);
+
+        // Remove workload metadata to make it invalid
+        string[] memory emptyLocators = new string[](0);
+        policy.setWorkloadMetadata(testWorkloadId, "", emptyLocators);
+
+        // Now the cached workload check should fail
+        vm.prank(builder1);
+        vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.NonBuilderAddress.selector, builder1));
+        flashblockNumber.incrementFlashblockNumber();
     }
 
     function test_Events_FlashblockIncremented() public {
@@ -192,17 +204,16 @@ contract FlashblockNumberTest is Test {
         }
     }
 
-    // This test is to ensure that the builder rotation is working as expected.
-    // It should be able to add new builders and remove builders.
-    // It should be able to increment the flashblock number for each builder.
-    function testFuzz_BuilderRotation(address[] memory newBuilders) public {
+    // This test is to ensure that dynamic builder authorization is working as expected
+    // by testing multiple builders with different authorization states
+    function testFuzz_DynamicBuilderAuthorization(address[] memory newBuilders) public {
         vm.assume(newBuilders.length > 0 && newBuilders.length <= 10);
 
         for (uint256 i = 0; i < newBuilders.length; i++) {
             vm.assume(newBuilders[i] != address(0));
-            vm.assume(!flashblockNumber.isBuilder(newBuilders[i]));
+            vm.assume(newBuilders[i] != builder1 && newBuilders[i] != builder2);
 
-            // this block is to ensure that the new builders are not the same as the initial builders
+            // Ensure no duplicates in the array
             bool duplicate = false;
             for (uint256 j = 0; j < i; j++) {
                 if (newBuilders[i] == newBuilders[j]) {
@@ -212,10 +223,11 @@ contract FlashblockNumberTest is Test {
             }
             vm.assume(!duplicate);
 
-            vm.prank(owner);
-            flashblockNumber.addBuilder(newBuilders[i]);
-            assertTrue(flashblockNumber.isBuilder(newBuilders[i]));
+            // Set up authorization for the new builder
+            registry.setRegistrationStatus(newBuilders[i], true, testQuoteHash);
+            policy.setPolicyStatus(newBuilders[i], true, testWorkloadId);
 
+            // Verify the new builder can increment
             vm.prank(newBuilders[i]);
             flashblockNumber.incrementFlashblockNumber();
         }
@@ -236,9 +248,9 @@ contract FlashblockNumberTest is Test {
         uint256 builder1PrivateKey = 0x1234;
         address signerBuilder = vm.addr(builder1PrivateKey);
 
-        // Add the signer as a builder
-        vm.prank(owner);
-        flashblockNumber.addBuilder(signerBuilder);
+        // Set up authorization for the signer
+        registry.setRegistrationStatus(signerBuilder, true, testQuoteHash);
+        policy.setPolicyStatus(signerBuilder, true, testWorkloadId);
 
         // Create signature for current flashblock number (0)
         bytes memory signature = _signIncrement(builder1PrivateKey, 0);
@@ -267,8 +279,9 @@ contract FlashblockNumberTest is Test {
         uint256 builder1PrivateKey = 0x1234;
         address signerBuilder = vm.addr(builder1PrivateKey);
 
-        vm.prank(owner);
-        flashblockNumber.addBuilder(signerBuilder);
+        // Set up authorization for the signer
+        registry.setRegistrationStatus(signerBuilder, true, testQuoteHash);
+        policy.setPolicyStatus(signerBuilder, true, testWorkloadId);
 
         // Create signature for flashblock number 5, but current is 0
         bytes memory signature = _signIncrement(builder1PrivateKey, 5);
@@ -281,8 +294,9 @@ contract FlashblockNumberTest is Test {
         uint256 builder1PrivateKey = 0x1234;
         address signerBuilder = vm.addr(builder1PrivateKey);
 
-        vm.prank(owner);
-        flashblockNumber.addBuilder(signerBuilder);
+        // Set up authorization for the signer
+        registry.setRegistrationStatus(signerBuilder, true, testQuoteHash);
+        policy.setPolicyStatus(signerBuilder, true, testWorkloadId);
 
         // Create signature for flashblock number 0
         bytes memory signature = _signIncrement(builder1PrivateKey, 0);
@@ -300,8 +314,8 @@ contract FlashblockNumberTest is Test {
         uint256 nonBuilderPrivateKey = 0x9999;
         address nonBuilderSigner = vm.addr(nonBuilderPrivateKey);
 
-        // Ensure the signer is not a builder
-        assertFalse(flashblockNumber.isBuilder(nonBuilderSigner));
+        // Ensure the signer is not authorized (not registered or not in policy)
+        // No need to set up authorization for this address
 
         bytes memory signature = _signIncrement(nonBuilderPrivateKey, 0);
 
@@ -309,33 +323,45 @@ contract FlashblockNumberTest is Test {
         flashblockNumber.permitIncrementFlashblockNumber(0, signature);
     }
 
-    function test_permitIncrementFlashblockNumber_BuilderRotationCompatibility() public {
+    function test_permitIncrementFlashblockNumber_AuthorizationRevocation() public {
         uint256 builder1PrivateKey = 0x1234;
         uint256 builder2PrivateKey = 0x5678;
         address signerBuilder1 = vm.addr(builder1PrivateKey);
         address signerBuilder2 = vm.addr(builder2PrivateKey);
 
-        // Add both builders
-        vm.prank(owner);
-        flashblockNumber.addBuilder(signerBuilder1);
-        vm.prank(owner);
-        flashblockNumber.addBuilder(signerBuilder2);
+        // Set up authorization for both builders with different workloads
+        WorkloadId workloadId1 = WorkloadId.wrap(keccak256("builder1-workload"));
+        WorkloadId workloadId2 = WorkloadId.wrap(keccak256("builder2-workload"));
+
+        // Set up workload metadata for both
+        string[] memory locators1 = new string[](1);
+        locators1[0] = "github.com/builder1/repo";
+        policy.setWorkloadMetadata(workloadId1, "abc123", locators1);
+
+        string[] memory locators2 = new string[](1);
+        locators2[0] = "github.com/builder2/repo";
+        policy.setWorkloadMetadata(workloadId2, "def456", locators2);
+
+        registry.setRegistrationStatus(signerBuilder1, true, testQuoteHash);
+        policy.setPolicyStatus(signerBuilder1, true, workloadId1);
+        registry.setRegistrationStatus(signerBuilder2, true, testQuoteHash);
+        policy.setPolicyStatus(signerBuilder2, true, workloadId2);
 
         // Builder1 increments via meta-transaction
         bytes memory signature1 = _signIncrement(builder1PrivateKey, 0);
         flashblockNumber.permitIncrementFlashblockNumber(0, signature1);
         assertEq(flashblockNumber.getFlashblockNumber(), 1);
 
-        // Remove builder1
-        vm.prank(owner);
-        flashblockNumber.removeBuilder(signerBuilder1);
+        // Revoke builder1's authorization by removing their workload metadata
+        string[] memory emptyLocators = new string[](0);
+        policy.setWorkloadMetadata(workloadId1, "", emptyLocators);
 
         // Builder1's old signature for flashblock 1 should now fail
         bytes memory oldSignature = _signIncrement(builder1PrivateKey, 1);
         vm.expectRevert(abi.encodeWithSelector(IFlashblockNumber.NonBuilderAddress.selector, signerBuilder1));
         flashblockNumber.permitIncrementFlashblockNumber(1, oldSignature);
 
-        // But builder2 can still increment
+        // But builder2 can still increment (uses different workload)
         bytes memory signature2 = _signIncrement(builder2PrivateKey, 1);
         flashblockNumber.permitIncrementFlashblockNumber(1, signature2);
         assertEq(flashblockNumber.getFlashblockNumber(), 2);
@@ -345,8 +371,9 @@ contract FlashblockNumberTest is Test {
         uint256 builder1PrivateKey = 0x1234;
         address signerBuilder = vm.addr(builder1PrivateKey);
 
-        vm.prank(owner);
-        flashblockNumber.addBuilder(signerBuilder);
+        // Set up authorization for the signer
+        registry.setRegistrationStatus(signerBuilder, true, testQuoteHash);
+        policy.setPolicyStatus(signerBuilder, true, testWorkloadId);
 
         // Direct call first
         vm.prank(signerBuilder);
@@ -373,8 +400,9 @@ contract FlashblockNumberTest is Test {
         uint256 builder1PrivateKey = 0x1234;
         address signerBuilder = vm.addr(builder1PrivateKey);
 
-        vm.prank(owner);
-        flashblockNumber.addBuilder(signerBuilder);
+        // Set up authorization for the signer
+        registry.setRegistrationStatus(signerBuilder, true, testQuoteHash);
+        policy.setPolicyStatus(signerBuilder, true, testWorkloadId);
 
         // Multiple sequential meta-transactions
         for (uint256 i = 0; i < 5; i++) {
@@ -388,8 +416,9 @@ contract FlashblockNumberTest is Test {
         uint256 builder1PrivateKey = 0x1234;
         address signerBuilder = vm.addr(builder1PrivateKey);
 
-        vm.prank(owner);
-        flashblockNumber.addBuilder(signerBuilder);
+        // Set up authorization for the signer
+        registry.setRegistrationStatus(signerBuilder, true, testQuoteHash);
+        policy.setPolicyStatus(signerBuilder, true, testWorkloadId);
 
         bytes memory signature = _signIncrement(builder1PrivateKey, 0);
 
@@ -416,8 +445,9 @@ contract FlashblockNumberTest is Test {
 
         address signerBuilder = vm.addr(builderPrivateKey);
 
-        vm.prank(owner);
-        flashblockNumber.addBuilder(signerBuilder);
+        // Set up authorization for the signer
+        registry.setRegistrationStatus(signerBuilder, true, testQuoteHash);
+        policy.setPolicyStatus(signerBuilder, true, testWorkloadId);
 
         for (uint256 i = 0; i < numIncrements; i++) {
             bytes memory signature = _signIncrement(builderPrivateKey, i);

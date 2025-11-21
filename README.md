@@ -51,7 +51,7 @@ cp env.sample .env
 source .env
 
 # deploy the FlashblockNumber contract using the arguments from .env. Replace the `--chain` argument with the chain id of the chain you want to deploy to; in this case we deploy to Unichain Sepolia
-forge script script/FlashblockNumber.s.sol --rpc-url $RPC_URL --broadcast --verify --interactives 1 --chain 1301
+forge script script/FlashblockNumber.s.sol --rpc-url $RPC_URL --broadcast --verify --interactives 1
 ```
 
 ### Integration
